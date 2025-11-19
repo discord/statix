@@ -1,12 +1,12 @@
 defmodule Statix.Mixfile do
   use Mix.Project
 
-  @version "1.5.0"
+  @version "1.5.1"
   @source_url "https://github.com/discord/statix"
 
   def project() do
     [
-      app: :discord_statix,
+      app: :statix,
       version: @version,
       elixir: "~> 1.15",
       deps: deps(),
@@ -31,6 +31,7 @@ defmodule Statix.Mixfile do
 
   defp package() do
     [
+      name: "discord_statix",
       maintainers: ["Discord"],
       licenses: ["ISC"],
       links: %{"GitHub" => @source_url}
