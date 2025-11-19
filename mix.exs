@@ -1,7 +1,7 @@
 defmodule Statix.Mixfile do
   use Mix.Project
 
-  @version "1.5.1"
+  @version "1.5.0"
   @source_url "https://github.com/discord/statix"
 
   def project() do
