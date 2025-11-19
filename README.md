@@ -1,7 +1,12 @@
 # Statix
 
-[![CI Status](https://github.com/lexmag/statix/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/lexmag/statix/actions/workflows/ci.yml)
-[![Hex Version](https://img.shields.io/hexpm/v/statix.svg "Hex Version")](https://hex.pm/packages/statix)
+[![CI Status](https://github.com/discord/statix/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/discord/statix/actions/workflows/ci.yml)
+[![Hex Version](https://img.shields.io/hexpm/v/statix.svg "Hex Version")](https://hex.pm/packages/discord_statix)
+
+This Discord fork of Statix exists for [discord/instruments](https://github.com/discord/instruments) - the following changes are applied to upstream [lexmag/statix](https://github.com/lexmag/statix):
+
+- [OTP26 compability via Port.command replacement](https://github.com/cabify/statix/pull/1)
+- Name change to discord_statix
 
 Statix is an Elixir client for StatsD-compatible servers.
 It is focused on speed without sacrificing simplicity, completeness, or correctness.

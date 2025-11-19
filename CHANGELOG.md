@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.5.0
+
+* Removed `Port.command` usage for OTP26+ compatiblity
 * Fixed prefix building when connect options provided.
 
 ## v1.4.0
