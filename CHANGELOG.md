@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.5.1
+
+* Retain :statix application name with :discord_statix package name
+
 ## v1.5.0
 
 * Removed `Port.command` usage for OTP26+ compatiblity
