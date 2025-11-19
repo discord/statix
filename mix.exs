@@ -8,7 +8,7 @@ defmodule Statix.Mixfile do
     [
       app: :discord_statix,
       version: @version,
-      elixir: "~> 1.3",
+      elixir: "~> 1.15",
       deps: deps(),
 
       # Hex
@@ -22,7 +22,7 @@ defmodule Statix.Mixfile do
   end
 
   def application() do
-    [applications: [:logger]]
+    [extra_applications: [:logger]]
   end
 
   defp description() do
@@ -38,7 +38,7 @@ defmodule Statix.Mixfile do
   end
 
   defp deps() do
-    [{:ex_doc, "~> 0.20.0", only: :dev}]
+    [{:ex_doc, "~> 0.39.1", only: :dev, runtime: false, warn_if_outdated: true}]
   end
 
   defp docs() do
