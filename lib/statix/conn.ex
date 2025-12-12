@@ -1,7 +1,10 @@
 defmodule Statix.Conn do
   @moduledoc false
 
-  defstruct [:sock, :address, :port, :prefix]
+  # sock field holds different types depending on state and transport:
+  # - UDP: port (after open/1) or atom for process name
+  # - UDS: {:socket_path, path} before open/1, socket reference after
+  defstruct [:sock, :address, :port, :prefix, :transport]
 
   alias Statix.Packet
 
@@ -14,7 +17,7 @@ defmodule Statix.Conn do
   def new(host, port, prefix) when is_list(host) or is_tuple(host) do
     case :inet.getaddr(host, :inet) do
       {:ok, address} ->
-        %__MODULE__{address: address, port: port, prefix: prefix}
+        %__MODULE__{address: address, port: port, prefix: prefix, transport: :udp}
 
       {:error, reason} ->
         raise(
@@ -24,9 +27,36 @@ defmodule Statix.Conn do
     end
   end
 
-  def open(%__MODULE__{} = conn) do
+  def new(socket_path, prefix) when is_binary(socket_path) do
+    # No address resolution needed for UDS
+    %__MODULE__{prefix: prefix, transport: :uds, sock: {:socket_path, socket_path}}
+  end
+
+  def open(%__MODULE__{transport: :udp} = conn) do
     {:ok, sock} = :gen_udp.open(0, active: false)
     %__MODULE__{conn | sock: sock}
+  end
+
+  def open(%__MODULE__{transport: :uds, sock: {:socket_path, path}} = conn) do
+    # Check if :socket module is available
+    unless Code.ensure_loaded?(:socket) do
+      raise "Unix domain socket support requires OTP 22+. Current OTP version does not support :socket module."
+    end
+
+    # Open AF_UNIX SOCK_DGRAM socket
+    {:ok, sock} = :socket.open(:local, :dgram, :default)
+
+    # Connect to the server socket path (connected socket pattern)
+    path_addr = %{family: :local, path: String.to_charlist(path)}
+
+    case :socket.connect(sock, path_addr) do
+      :ok ->
+        %__MODULE__{conn | sock: sock}
+
+      {:error, reason} ->
+        :socket.close(sock)
+        raise "Failed to connect to Unix domain socket at #{path}: #{inspect(reason)}"
+    end
   end
 
   def transmit(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
@@ -47,7 +77,12 @@ defmodule Statix.Conn do
     result
   end
 
-  defp transmit(packet, %__MODULE__{address: address, port: port, sock: sock_name}) do
+  defp transmit(packet, %__MODULE__{
+         transport: :udp,
+         address: address,
+         port: port,
+         sock: sock_name
+       }) do
     sock = Process.whereis(sock_name)
 
     if sock do
@@ -55,5 +90,14 @@ defmodule Statix.Conn do
     else
       {:error, :port_closed}
     end
+  end
+
+  defp transmit(packet, %__MODULE__{transport: :uds, sock: sock}) do
+    # UDS DGRAM sockets send atomically (all or nothing)
+    :socket.send(sock, packet)
+  end
+
+  defp transmit(_packet, %__MODULE__{transport: transport}) do
+    raise ArgumentError, "unsupported transport type: #{inspect(transport)}"
   end
 end

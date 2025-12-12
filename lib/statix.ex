@@ -40,15 +40,24 @@ defmodule Statix do
       config :statix, MyApp.Statix,
         port: 8123
 
+  Unix domain sockets are also supported for local connections:
+
+      config :statix, MyApp.Statix,
+        socket_path: "/var/run/statsd.sock"
+
   The following is a list of all the supported options:
 
     * `:prefix` - (binary) all metrics sent to the StatsD-compatible
       server through the configured Statix connection will be prefixed with the
       value of this option. By default this option is not present.
     * `:host` - (binary) the host where the StatsD-compatible server is running.
-      Defaults to `"127.0.0.1"`.
+      Defaults to `"127.0.0.1"`. Ignored if `:socket_path` is set.
     * `:port` - (integer) the port (on `:host`) where the StatsD-compatible
-      server is running. Defaults to `8125`.
+      server is running. Defaults to `8125`. Ignored if `:socket_path` is set.
+    * `:socket_path` - (binary) path to a Unix domain socket for the StatsD-compatible
+      server. When this option is present, `:host` and `:port` are ignored and the
+      connection uses Unix domain sockets instead of UDP. Requires OTP 22+.
+      By default this option is not present.
     * `:tags` - ([binary]) a list of global tags that will be sent with all
       metrics. By default this option is not present.
       See the "Tags" section for more information.
@@ -359,7 +368,14 @@ defmodule Statix do
   @doc false
   def new(module, options) do
     config = get_config(module, options)
-    conn = Conn.new(config.host, config.port, config.prefix)
+
+    # Determine transport based on socket_path presence
+    conn =
+      if config.socket_path do
+        Conn.new(config.socket_path, config.prefix)
+      else
+        Conn.new(config.host, config.port, config.prefix)
+      end
 
     %__MODULE__{
       conn: conn,
@@ -375,7 +391,33 @@ defmodule Statix do
   end
 
   @doc false
+  def open(%__MODULE__{conn: %{transport: :uds} = conn, pool: pool}) do
+    # UDS sockets are socket references (not ports), so they cannot be registered as process names.
+    # Instead, we store them in ETS for fast O(1) lookup without message passing overhead.
+    table_name = :"#{hd(pool)}_uds_sockets"
+
+    # Ensure table exists; try-rescue handles concurrent open/1 calls attempting to create the same table
+    case :ets.whereis(table_name) do
+      :undefined ->
+        try do
+          :ets.new(table_name, [:named_table, :public, :set, read_concurrency: true])
+        rescue
+          ArgumentError -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+
+    # Open sockets and store in ETS pool
+    Enum.each(pool, fn name ->
+      opened_conn = Conn.open(conn)
+      :ets.insert(table_name, {name, opened_conn})
+    end)
+  end
+
   def open(%__MODULE__{conn: conn, pool: pool}) do
+    # For UDP, use pooling with registered ports
     Enum.each(pool, fn name ->
       %{sock: sock} = Conn.open(conn)
       Process.register(sock, name)
@@ -384,6 +426,33 @@ defmodule Statix do
 
   @doc false
   def transmit(
+        %{conn: %{transport: :uds}, pool: pool, tags: tags},
+        type,
+        key,
+        value,
+        options
+      )
+      when (is_binary(key) or is_list(key)) and is_list(options) do
+    if should_send?(options) do
+      options = put_global_tags(options, tags)
+
+      # For UDS, look up the conn from ETS (fast, non-blocking)
+      name = pick_name(pool)
+      table_name = :"#{hd(pool)}_uds_sockets"
+
+      case :ets.lookup(table_name, name) do
+        [{^name, conn}] ->
+          Conn.transmit(conn, type, key, to_string(value), options)
+
+        [] ->
+          {:error, :socket_not_found}
+      end
+    else
+      :ok
+    end
+  end
+
+  def transmit(
         %{conn: conn, pool: pool, tags: tags},
         type,
         key,
@@ -391,9 +460,7 @@ defmodule Statix do
         options
       )
       when (is_binary(key) or is_list(key)) and is_list(options) do
-    sample_rate = Keyword.get(options, :sample_rate)
-
-    if is_nil(sample_rate) or sample_rate >= :rand.uniform() do
+    if should_send?(options) do
       options = put_global_tags(options, tags)
 
       %{conn | sock: pick_name(pool)}
@@ -402,6 +469,11 @@ defmodule Statix do
       :ok
     end
   end
+
+  # Takes first :sample_rate occurrence (standard keyword list behavior)
+  defp should_send?([]), do: true
+  defp should_send?([{:sample_rate, rate} | _]), do: rate >= :rand.uniform()
+  defp should_send?([_ | rest]), do: should_send?(rest)
 
   defp pick_name([name]), do: name
   defp pick_name(pool), do: Enum.random(pool)
@@ -424,6 +496,7 @@ defmodule Statix do
       prefix: build_prefix(env, overrides),
       host: Keyword.get(options, :host, "127.0.0.1"),
       port: Keyword.get(options, :port, 8125),
+      socket_path: Keyword.get(options, :socket_path),
       pool_size: Keyword.get(options, :pool_size, 1),
       tags: tags
     }
