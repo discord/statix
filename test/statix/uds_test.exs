@@ -3,7 +3,6 @@ Code.require_file("../support/uds_test_server.exs", __DIR__)
 defmodule Statix.UDSTest do
   use ExUnit.Case
 
-  # Only run these tests on OTP 22+ with :socket support
   @moduletag :uds
 
   defmodule TestStatix do
@@ -11,30 +10,19 @@ defmodule Statix.UDSTest do
   end
 
   setup_all do
-    # Skip if :socket module is not available
-    unless Code.ensure_loaded?(:socket) do
-      :ok
-    else
-      # Create temporary socket path
-      socket_path = "/tmp/statix_test_#{:erlang.unique_integer([:positive])}.sock"
+    socket_path = "/tmp/statix_test_#{:erlang.unique_integer([:positive])}.sock"
+    {:ok, _} = Statix.UDSTestServer.start_link(socket_path, __MODULE__.Server)
 
-      # Start UDS test server
-      {:ok, _} = Statix.UDSTestServer.start_link(socket_path, __MODULE__.Server)
+    on_exit(fn ->
+      File.rm(socket_path)
+    end)
 
-      on_exit(fn ->
-        File.rm(socket_path)
-      end)
-
-      {:ok, socket_path: socket_path}
-    end
+    {:ok, socket_path: socket_path}
   end
 
   setup context do
-    if Code.ensure_loaded?(:socket) do
-      Statix.UDSTestServer.setup(__MODULE__.Server)
-      TestStatix.connect(socket_path: context[:socket_path])
-    end
-
+    Statix.UDSTestServer.setup(__MODULE__.Server)
+    TestStatix.connect(socket_path: context[:socket_path])
     :ok
   end
 

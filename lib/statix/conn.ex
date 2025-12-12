@@ -28,7 +28,6 @@ defmodule Statix.Conn do
   end
 
   def new(socket_path, prefix) when is_binary(socket_path) do
-    # No address resolution needed for UDS
     %__MODULE__{prefix: prefix, transport: :uds, sock: {:socket_path, socket_path}}
   end
 
@@ -38,15 +37,11 @@ defmodule Statix.Conn do
   end
 
   def open(%__MODULE__{transport: :uds, sock: {:socket_path, path}} = conn) do
-    # Check if :socket module is available
     unless Code.ensure_loaded?(:socket) do
       raise "Unix domain socket support requires OTP 22+. Current OTP version does not support :socket module."
     end
 
-    # Open AF_UNIX SOCK_DGRAM socket
     {:ok, sock} = :socket.open(:local, :dgram, :default)
-
-    # Connect to the server socket path (connected socket pattern)
     path_addr = %{family: :local, path: String.to_charlist(path)}
 
     case :socket.connect(sock, path_addr) do
@@ -93,7 +88,7 @@ defmodule Statix.Conn do
   end
 
   defp transmit(packet, %__MODULE__{transport: :uds, sock: sock}) do
-    # UDS DGRAM sockets send atomically (all or nothing)
+    # UDS DGRAM sockets send atomically
     :socket.send(sock, packet)
   end
 

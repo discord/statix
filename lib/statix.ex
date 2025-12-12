@@ -393,10 +393,10 @@ defmodule Statix do
   @doc false
   def open(%__MODULE__{conn: %{transport: :uds} = conn, pool: pool}) do
     # UDS sockets are socket references (not ports), so they cannot be registered as process names.
-    # Instead, we store them in ETS for fast O(1) lookup without message passing overhead.
+    # Instead, store them in ETS for lookup without message passing overhead.
     table_name = :"#{hd(pool)}_uds_sockets"
 
-    # Ensure table exists; try-rescue handles concurrent open/1 calls attempting to create the same table
+    # Make sure the table exists, handle concurrent open/1 calls
     case :ets.whereis(table_name) do
       :undefined ->
         try do
@@ -417,7 +417,6 @@ defmodule Statix do
   end
 
   def open(%__MODULE__{conn: conn, pool: pool}) do
-    # For UDP, use pooling with registered ports
     Enum.each(pool, fn name ->
       %{sock: sock} = Conn.open(conn)
       Process.register(sock, name)
@@ -436,7 +435,6 @@ defmodule Statix do
     if should_send?(options) do
       options = put_global_tags(options, tags)
 
-      # For UDS, look up the conn from ETS (fast, non-blocking)
       name = pick_name(pool)
       table_name = :"#{hd(pool)}_uds_sockets"
 
