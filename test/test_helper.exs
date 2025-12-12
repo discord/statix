@@ -6,7 +6,8 @@ defmodule Statix.TestCase do
   use ExUnit.CaseTemplate
 
   using options do
-    port = Keyword.get(options, :port, 8125)
+    # Use random high port to avoid collisions with typical infra (statsd/dogstatsd)
+    port = Keyword.get(options, :port, 8125 + :rand.uniform(10000))
 
     quote do
       setup_all do
