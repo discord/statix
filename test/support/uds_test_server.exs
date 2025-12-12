@@ -7,28 +7,20 @@ defmodule Statix.UDSTestServer do
 
   @impl true
   def init(socket_path) do
-    # Check if :socket module is available (OTP 22+)
     unless Code.ensure_loaded?(:socket) do
       {:stop, :socket_not_available}
     else
-      # Create AF_UNIX SOCK_DGRAM socket
       {:ok, sock} = :socket.open(:local, :dgram, :default)
 
-      # Bind to socket path
       addr = %{family: :local, path: String.to_charlist(socket_path)}
       :ok = :socket.bind(sock, addr)
-
-      # Set receive buffer size to 64KB
       :ok = :socket.setopt(sock, :otp, :rcvbuf, 65536)
 
-      # Start async receive - handle both success and select cases
       case :socket.recvfrom(sock, 0, [], :nowait) do
         {:ok, _} = result ->
-          # Data already available, send to self to handle in handle_info
           send(self(), {:socket_data, result})
 
         {:select, _select_info} ->
-          # Will receive message when data arrives
           :ok
 
         {:error, reason} ->
@@ -53,16 +45,14 @@ defmodule Statix.UDSTestServer do
         {:"$socket", socket, :select, _select_info},
         %{socket: socket, test: test} = state
       ) do
-    # Read the packet
+
     case :socket.recvfrom(socket, 0, [], :nowait) do
       {:ok, {_source, packet}} ->
         if test, do: send(test, {:test_server, %{socket: socket}, packet})
-        # Start next async receive
         start_receive(socket)
         {:noreply, state}
 
       {:select, _select_info} ->
-        # Already selecting, just wait
         {:noreply, state}
 
       {:error, reason} ->
@@ -73,9 +63,8 @@ defmodule Statix.UDSTestServer do
 
   @impl true
   def handle_info({:socket_data, {:ok, {_source, packet}}}, %{socket: socket, test: test} = state) do
-    # Handle data that was already available during init
     if test, do: send(test, {:test_server, %{socket: socket}, packet})
-    # Start next async receive
+
     start_receive(socket)
     {:noreply, state}
   end
