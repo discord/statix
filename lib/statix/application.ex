@@ -5,10 +5,19 @@ defmodule Statix.Application do
 
   def start(_type, _args) do
     children = [
-      {Registry, keys: :unique, name: Statix.SocketPoolRegistry},
-      {DynamicSupervisor, strategy: :one_for_one, name: Statix.SocketPoolSupervisor}
+      %{
+        id: Statix.UDSHolder,
+        start: {Task, :start_link, [fn -> uds_holder() end]},
+        restart: :permanent
+      }
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Statix.Supervisor)
+  end
+
+  defp uds_holder do
+    :ets.new(:statix_uds_sockets, [:named_table, :public, :set, read_concurrency: true])
+    Process.register(self(), :statix_uds_holder)
+    Process.sleep(:infinity)
   end
 end
