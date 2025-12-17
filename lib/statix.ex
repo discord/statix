@@ -394,26 +394,23 @@ defmodule Statix do
   def open(%__MODULE__{conn: %{transport: :uds} = conn, pool: pool}) do
     # UDS sockets are socket references (not ports), so they cannot be registered as process names.
     # Instead, store them in ETS for lookup without message passing overhead.
+    # A GenServer owns the ETS table to ensure proper lifecycle management.
     table_name = :"#{hd(pool)}_uds_sockets"
 
-    # Make sure the table exists, handle concurrent open/1 calls
-    case :ets.whereis(table_name) do
-      :undefined ->
-        try do
-          :ets.new(table_name, [:named_table, :public, :set, read_concurrency: true])
-        rescue
-          ArgumentError -> :ok
-        end
-
-      _ ->
+    # Start GenServer to own the table (idempotent via Registry)
+    case DynamicSupervisor.start_child(
+           Statix.SocketPoolSupervisor,
+           {Statix.SocketPool, [table_name: table_name, conn: conn, pool: pool]}
+         ) do
+      {:ok, _pid} ->
         :ok
-    end
 
-    # Open sockets and store in ETS pool
-    Enum.each(pool, fn name ->
-      opened_conn = Conn.open(conn)
-      :ets.insert(table_name, {name, opened_conn})
-    end)
+      {:error, {:already_started, _pid}} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   def open(%__MODULE__{conn: conn, pool: pool}) do
