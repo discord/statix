@@ -35,9 +35,6 @@ defmodule Statix.OverridingTest do
     super([key, "-overridden"], value, options)
   end
 
-  setup do
-    connect()
-  end
 
   test "increment/3" do
     increment("sample", 3, tags: ["foo"])

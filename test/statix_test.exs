@@ -16,9 +16,6 @@ defmodule StatixTest do
     end)
   end
 
-  setup do
-    connect()
-  end
 
   test "increment/1,2,3" do
     __MODULE__.increment("sample")
@@ -160,22 +157,22 @@ defmodule StatixTest do
 
     assert capture_log(fn ->
              assert {:error, :port_closed} == increment("sample")
-           end) =~ "counter metric \"sample\" lost value 1 error=:port_closed\n\e[0m"
+           end) =~ "counter metric \"sample\" lost value 1 error=:port_closed"
 
     assert capture_log(fn ->
              assert {:error, :port_closed} == decrement("sample")
-           end) =~ "counter metric \"sample\" lost value -1 error=:port_closed\n\e[0m"
+           end) =~ "counter metric \"sample\" lost value -1 error=:port_closed"
 
     assert capture_log(fn ->
              assert {:error, :port_closed} == gauge("sample", 2)
-           end) =~ "gauge metric \"sample\" lost value 2 error=:port_closed\n\e[0m"
+           end) =~ "gauge metric \"sample\" lost value 2 error=:port_closed"
 
     assert capture_log(fn ->
              assert {:error, :port_closed} == histogram("sample", 3)
-           end) =~ "histogram metric \"sample\" lost value 3 error=:port_closed\n\e[0m"
+           end) =~ "histogram metric \"sample\" lost value 3 error=:port_closed"
 
     assert capture_log(fn ->
              assert {:error, :port_closed} == timing("sample", 2.5)
-           end) =~ "timing metric \"sample\" lost value 2.5 error=:port_closed\n\e[0m"
+           end) =~ "timing metric \"sample\" lost value 2.5 error=:port_closed"
   end
 end
