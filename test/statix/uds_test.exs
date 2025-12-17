@@ -157,7 +157,8 @@ defmodule Statix.UDSTest do
         {:ok, conn} = Statix.ConnTracker.get(context[:socket_path])
         TestStatix.increment("pooled.metric")
         assert_receive {:test_server, _, _packet}
-        conn.sock  # Return the socket reference
+        # Return the socket reference
+        conn.sock
       end
 
     socket_counts = Enum.frequencies(socket_refs)
@@ -165,7 +166,7 @@ defmodule Statix.UDSTest do
 
     Enum.each(socket_counts, fn {_sock, count} ->
       assert count > 250 and count < 417,
-        "Expected roughly 333 uses per socket, got: #{inspect(socket_counts)}"
+             "Expected roughly 333 uses per socket, got: #{inspect(socket_counts)}"
     end)
   end
 end

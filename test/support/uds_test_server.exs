@@ -45,7 +45,6 @@ defmodule Statix.UDSTestServer do
         {:"$socket", socket, :select, _select_info},
         %{socket: socket, test: test} = state
       ) do
-
     case :socket.recvfrom(socket, 0, [], :nowait) do
       {:ok, {_source, packet}} ->
         if test, do: send(test, {:test_server, %{socket: socket}, packet})

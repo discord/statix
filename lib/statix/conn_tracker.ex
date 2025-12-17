@@ -9,7 +9,9 @@ defmodule Statix.ConnTracker do
 
   @impl true
   def init(_opts) do
-    table = :ets.new(:statix_conn_tracker, [:set, :protected, :named_table, read_concurrency: true])
+    table =
+      :ets.new(:statix_conn_tracker, [:set, :protected, :named_table, read_concurrency: true])
+
     {:ok, table}
   end
 
