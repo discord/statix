@@ -390,35 +390,16 @@ defmodule Statix do
     Enum.map(1..size, &:"#{module}-#{&1}")
   end
 
-  defp ensure_uds_holder do
-    # The holder process is started by Statix.Application
-    # Just wait for the table to be available
-    wait_for_table()
-  end
-
-  defp wait_for_table do
-    case :ets.whereis(:statix_uds_sockets) do
-      :undefined ->
-        Process.sleep(1)
-        wait_for_table()
-
-      _ ->
-        :ok
-    end
-  end
-
   @doc false
   def open(%__MODULE__{conn: %{transport: :uds, sock: {:socket_path, path}} = conn, pool: pool}) do
     # UDS sockets are socket references (not ports), so they cannot be registered as process names.
-    # Instead, store them in a shared ETS table owned by a single holder process.
-    ensure_uds_holder()
+    # Instead, store them in ConnTracker's ETS table.
+    connections =
+      Enum.map(pool, fn _name ->
+        Conn.open(conn)
+      end)
 
-    Enum.each(pool, fn name ->
-      opened_conn = Conn.open(conn)
-      :ets.insert(:statix_uds_sockets, {{path, name}, opened_conn})
-    end)
-
-    :ok
+    Statix.ConnTracker.set(path, connections)
   end
 
   def open(%__MODULE__{conn: conn, pool: pool}) do
@@ -430,7 +411,7 @@ defmodule Statix do
 
   @doc false
   def transmit(
-        %{conn: %{transport: :uds, socket_path: path}, pool: pool, tags: tags},
+        %{conn: %{transport: :uds, socket_path: path}, tags: tags},
         type,
         key,
         value,
@@ -440,13 +421,11 @@ defmodule Statix do
     if should_send?(options) do
       options = put_global_tags(options, tags)
 
-      name = pick_name(pool)
-
-      case :ets.lookup(:statix_uds_sockets, {path, name}) do
-        [{{^path, ^name}, conn}] ->
+      case Statix.ConnTracker.get(path) do
+        {:ok, conn} ->
           Conn.transmit(conn, type, key, to_string(value), options)
 
-        [] ->
+        {:error, :not_found} ->
           {:error, :socket_not_found}
       end
     else

@@ -145,4 +145,37 @@ defmodule Statix.UDSTest do
     tag_count = packet |> String.split(",") |> length()
     assert tag_count == 140
   end
+
+  test "pooling with pool_size > 1 distributes traffic", context do
+    # Connect with pool size of 3
+    TestStatix.connect(socket_path: context[:socket_path], pool_size: 3)
+
+    # Verify 3 connections are stored in ConnTracker
+    [{_, connections}] = :ets.lookup(:statix_conn_tracker, context[:socket_path])
+    assert length(connections) == 3
+
+    # Track which connection each metric uses by pattern matching on socket references
+    # We'll send 1000 metrics and count unique sockets that appear
+    socket_refs =
+      for i <- 1..1000 do
+        # Capture the connection that was selected
+        {:ok, conn} = Statix.ConnTracker.get(context[:socket_path])
+        TestStatix.increment("pooled.metric")
+        assert_receive {:test_server, _, _packet}
+        conn.sock  # Return the socket reference
+      end
+
+    # Count how many times each unique socket was used
+    socket_counts = Enum.frequencies(socket_refs)
+
+    # All 3 sockets should be used
+    assert map_size(socket_counts) == 3
+
+    # Each socket should handle roughly 1/3 of traffic (allow 20% variance)
+    # With 1000 samples, each should get ~333 ± 67 (within statistical bounds)
+    Enum.each(socket_counts, fn {_sock, count} ->
+      assert count > 250 and count < 417,
+        "Expected roughly 333 uses per socket, got: #{inspect(socket_counts)}"
+    end)
+  end
 end
