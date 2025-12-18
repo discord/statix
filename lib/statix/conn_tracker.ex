@@ -3,6 +3,8 @@ defmodule Statix.ConnTracker do
 
   use GenServer
 
+  alias Statix.Conn
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -15,10 +17,24 @@ defmodule Statix.ConnTracker do
     {:ok, table}
   end
 
+  @doc """
+  Stores a list of connections for the given key, replacing any existing connections.
+
+  Closes old connections before storing new ones to prevent resource leaks.
+  Typically called when establishing a UDS connection pool with pool_size > 1.
+  """
+  @spec set(key :: term(), connections :: [Conn.t()]) :: :ok
   def set(key, connections) do
     GenServer.call(__MODULE__, {:set, key, connections})
   end
 
+  @doc """
+  Retrieves a random connection for the given key.
+
+  Returns `{:ok, conn}` with a randomly selected connection from the pool,
+  or `{:error, :not_found}` if no connections exist for the key.
+  """
+  @spec get(key :: term()) :: {:ok, Conn.t()} | {:error, :not_found}
   def get(key) do
     case :ets.lookup(:statix_conn_tracker, key) do
       [{^key, connections}] ->

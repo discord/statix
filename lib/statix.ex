@@ -114,6 +114,8 @@ defmodule Statix do
 
   alias __MODULE__.Conn
 
+  require Logger
+
   @type key :: iodata
   @type options :: [sample_rate: float, tags: [String.t()]]
   @type on_send :: :ok | {:error, term}
@@ -473,7 +475,7 @@ defmodule Statix do
         env |> Keyword.get_values(:tags) |> Enum.concat()
       end)
 
-    %{
+    config = %{
       prefix: build_prefix(env, overrides),
       host: Keyword.get(options, :host, "127.0.0.1"),
       port: Keyword.get(options, :port, 8125),
@@ -481,6 +483,21 @@ defmodule Statix do
       pool_size: Keyword.get(options, :pool_size, 1),
       tags: tags
     }
+
+    # Warn if both socket_path and host/port are specified
+    if config.socket_path do
+      has_custom_host = Keyword.has_key?(options, :host)
+      has_custom_port = Keyword.has_key?(options, :port)
+
+      if has_custom_host or has_custom_port do
+        Logger.warning(
+          "Both socket_path and host/port specified for #{inspect(module)}. " <>
+            "Using socket_path=#{config.socket_path}, ignoring host/port."
+        )
+      end
+    end
+
+    config
   end
 
   defp build_prefix(env, overrides) do
