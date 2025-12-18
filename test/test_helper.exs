@@ -1,6 +1,14 @@
 Code.require_file("support/test_server.exs", __DIR__)
 
-ExUnit.start()
+# Exclude UDS tests on OTP < 22 (when :socket module is not available)
+exclude =
+  if Code.ensure_loaded?(:socket) do
+    []
+  else
+    [:uds]
+  end
+
+ExUnit.start(exclude: exclude)
 
 defmodule Statix.TestCase do
   use ExUnit.CaseTemplate
