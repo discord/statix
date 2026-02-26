@@ -60,19 +60,45 @@ defmodule Statix.Conn do
     end
   end
 
-  def transmit(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
+  def safe_open(%__MODULE__{transport: :uds, sock: {:socket_path, path}} = conn) do
+    with {:ok, sock} <- :socket.open(:local, :dgram, :default) do
+      path_addr = %{family: :local, path: String.to_charlist(path)}
+
+      case :socket.connect(sock, path_addr) do
+        :ok ->
+          {:ok, %__MODULE__{conn | sock: sock}}
+
+        {:error, reason} ->
+          :socket.close(sock)
+          {:error, reason}
+      end
+    end
+  end
+
+  def transmit(
+        %__MODULE__{sock: sock, prefix: prefix} = conn,
+        type,
+        key,
+        val,
+        options,
+        opts \\ []
+      )
       when is_binary(val) and is_list(options) do
     result =
       prefix
       |> Packet.build(type, key, val, options)
       |> transmit(conn)
 
+    should_log = Keyword.get(opts, :log, true)
+
     with {:error, error} <- result do
-      Logger.error(fn ->
-        if(is_atom(sock), do: "", else: "Statix ") <>
-          "#{inspect(sock)} #{type} metric \"#{key}\" lost value #{val}" <>
-          " error=#{inspect(error)}"
-      end)
+      if should_log do
+        Logger.error(fn ->
+          if(is_atom(sock), do: "", else: "Statix ") <>
+            "#{inspect(sock)} #{type} metric \"#{key}\" lost value #{val}" <>
+            " error=#{inspect(error)}"
+        end)
+      end
     end
 
     result
