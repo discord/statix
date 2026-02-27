@@ -23,7 +23,6 @@ defmodule Statix.Mixfile do
 
   def application() do
     [
-      mod: {Statix.Application, []},
       extra_applications: [:logger]
     ]
   end
