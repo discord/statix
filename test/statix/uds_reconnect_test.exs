@@ -114,7 +114,7 @@ defmodule Statix.UDSReconnectTest do
       # Sync barrier: forces ConnTracker to process all prior casts
       :sys.get_state(Statix.ConnTracker)
 
-      assert Statix.ConnTracker.unhealthy?(socket_path)
+      assert {:error, :not_found} == Statix.ConnTracker.get(socket_path)
 
       File.rm(socket_path)
     end
@@ -139,7 +139,7 @@ defmodule Statix.UDSReconnectTest do
       # Sync barrier: forces ConnTracker to process all prior casts
       :sys.get_state(Statix.ConnTracker)
 
-      assert Statix.ConnTracker.unhealthy?(socket_path)
+      assert {:error, :not_found} == Statix.ConnTracker.get(socket_path)
 
       {:ok, server2} = Statix.UDSTestServer.start_link(socket_path, __MODULE__.ReconnectServer2)
       :ok = GenServer.call(__MODULE__.ReconnectServer2, {:set_current_test, self()})
@@ -147,7 +147,7 @@ defmodule Statix.UDSReconnectTest do
       # Wait for health-check to fire (first backoff is ~1 second with jitter)
       Process.sleep(2_000)
 
-      refute Statix.ConnTracker.unhealthy?(socket_path)
+      assert {:ok, _} = Statix.ConnTracker.get(socket_path)
 
       TestStatix.increment("after_reconnect")
       assert_receive {:test_server, _, "after_reconnect:1|c"}, 1000
@@ -173,17 +173,17 @@ defmodule Statix.UDSReconnectTest do
       # Sync barrier: forces ConnTracker to process all prior casts
       :sys.get_state(Statix.ConnTracker)
 
-      assert Statix.ConnTracker.unhealthy?(socket_path)
+      assert {:error, :not_found} == Statix.ConnTracker.get(socket_path)
 
       # Wait for first health-check to fire and fail (~1s backoff)
       Process.sleep(1_500)
 
-      assert Statix.ConnTracker.unhealthy?(socket_path)
+      assert {:error, :not_found} == Statix.ConnTracker.get(socket_path)
 
       File.rm(socket_path)
     end
 
-    test "lost_count tracks dropped metrics" do
+    test "repeated failures while unhealthy do not crash" do
       socket_path = "/tmp/statix_lost_count_#{:erlang.unique_integer([:positive])}.sock"
       {:ok, server} = Statix.UDSTestServer.start_link(socket_path, __MODULE__.LostCountServer)
       :ok = GenServer.call(__MODULE__.LostCountServer, {:set_current_test, self()})
@@ -200,7 +200,7 @@ defmodule Statix.UDSReconnectTest do
       # Sync barrier: forces ConnTracker to process all prior casts
       :sys.get_state(Statix.ConnTracker)
 
-      assert Statix.ConnTracker.unhealthy?(socket_path)
+      assert {:error, :not_found} == Statix.ConnTracker.get(socket_path)
 
       File.rm(socket_path)
     end

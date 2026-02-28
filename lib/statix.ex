@@ -431,7 +431,9 @@ defmodule Statix do
       case Statix.ConnTracker.get(path) do
         {:ok, conn} ->
           case Conn.transmit(conn, type, key, to_string(value), options) do
-            :ok -> :ok
+            :ok ->
+              :ok
+
             {:error, _reason} = error ->
               Statix.ConnTracker.report_send_error(path)
               error

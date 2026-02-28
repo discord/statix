@@ -75,30 +75,19 @@ defmodule Statix.Conn do
     end
   end
 
-  def transmit(
-        %__MODULE__{sock: sock, prefix: prefix} = conn,
-        type,
-        key,
-        val,
-        options,
-        opts \\ []
-      )
+  def transmit(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
       when is_binary(val) and is_list(options) do
     result =
       prefix
       |> Packet.build(type, key, val, options)
       |> transmit(conn)
 
-    should_log = Keyword.get(opts, :log, true)
-
     with {:error, error} <- result do
-      if should_log do
-        Logger.error(fn ->
-          if(is_atom(sock), do: "", else: "Statix ") <>
-            "#{inspect(sock)} #{type} metric \"#{key}\" lost value #{val}" <>
-            " error=#{inspect(error)}"
-        end)
-      end
+      Logger.error(fn ->
+        if(is_atom(sock), do: "", else: "Statix ") <>
+          "#{inspect(sock)} #{type} metric \"#{key}\" lost value #{val}" <>
+          " error=#{inspect(error)}"
+      end)
     end
 
     result

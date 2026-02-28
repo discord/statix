@@ -46,16 +46,6 @@ defmodule Statix.ConnTracker do
   end
 
   @doc """
-  Check if a path is marked unhealthy. Lock-free ETS read for hot path.
-  """
-  @spec unhealthy?(key :: term()) :: boolean()
-  def unhealthy?(key) do
-    :ets.lookup(:statix_conn_tracker, {:unhealthy, key}) != []
-  rescue
-    ArgumentError -> false
-  end
-
-  @doc """
   Report a send error for the given path. Non-blocking cast.
   If path is not yet unhealthy, marks it and starts the health-check loop.
   If already unhealthy, increments the lost metric count.
@@ -80,8 +70,6 @@ defmodule Statix.ConnTracker do
 
     # Clear unhealthy state if present — a manual connect() supersedes the health-check loop.
     # Cancel the pending timer so it doesn't close these fresh connections.
-    :ets.delete(state.table, {:unhealthy, key})
-
     unhealthy =
       case Map.pop(state.unhealthy, key) do
         {nil, map} ->
@@ -118,8 +106,10 @@ defmodule Statix.ConnTracker do
     else
       case Map.fetch(state.conn_templates, path) do
         {:ok, conn_template} ->
-          # Mark as unhealthy, insert ETS sentinel, schedule first health-check
-          :ets.insert(state.table, {{:unhealthy, path}, true})
+          # Close and remove stale connections — they're permanently broken.
+          # UDS DGRAM sockets to a dead server will never recover on their own;
+          # only opening new sockets after the server restarts can restore service.
+          close_and_remove(state.table, path)
 
           pool_size = Map.get(state.pool_sizes, path, 1)
           delay = backoff_ms(0)
@@ -160,16 +150,14 @@ defmodule Statix.ConnTracker do
     end
   end
 
+  # All-or-nothing reconnection strategy.
+  #
+  # Unlike UDP over a network, a UDS socket is a local-host resource: the server
+  # socket file either exists on the filesystem or it doesn't. There is no partial
+  # reachability. If we can open one DGRAM connection to it, we can open all of
+  # them; if we can't open one, we can't open any. So partial success doesn't need
+  # handling — any failure means total failure, and we retry the full pool later.
   defp attempt_reconnect(path, entry, state) do
-    # Capture old connections for cleanup AFTER new ones are in ETS.
-    # This avoids a window where get/1 returns conns with closed sockets.
-    old_conns =
-      case :ets.lookup(state.table, path) do
-        [{^path, conns}] -> conns
-        [] -> []
-      end
-
-    # Try to open pool_size new sockets
     results =
       Enum.map(1..entry.pool_size, fn _ ->
         Conn.safe_open(entry.conn_template)
@@ -177,65 +165,57 @@ defmodule Statix.ConnTracker do
 
     {successes, failures} = Enum.split_with(results, &match?({:ok, _}, &1))
 
-    cond do
-      successes != [] ->
-        # At least some sockets opened — swap in new connections, then close old.
-        # Accepts partial success: better to have some working sockets than none.
-        connections = Enum.map(successes, fn {:ok, conn} -> conn end)
-        :ets.insert(state.table, {path, connections})
-        :ets.delete(state.table, {:unhealthy, path})
-        close_connections(old_conns)
+    if failures == [] do
+      connections = Enum.map(successes, fn {:ok, conn} -> conn end)
+      :ets.insert(state.table, {path, connections})
 
-        if failures == [] do
-          Logger.info(
-            "Statix: reconnected UDS path #{path} " <>
-              "after losing #{entry.lost_count} metric(s)"
-          )
-        else
-          opened = length(successes)
-          failed = length(failures)
+      Logger.info(
+        "Statix: reconnected UDS path #{path} " <>
+          "after losing #{entry.lost_count} metric(s)"
+      )
 
-          Logger.info(
-            "Statix: partially reconnected UDS path #{path} " <>
-              "(#{opened}/#{opened + failed} sockets), " <>
-              "lost #{entry.lost_count} metric(s)"
-          )
-        end
+      {:noreply, %{state | unhealthy: Map.delete(state.unhealthy, path)}}
+    else
+      # Close any that happened to open — we need all or nothing.
+      close_connections(Enum.map(successes, fn {:ok, conn} -> conn end))
 
-        {:noreply, %{state | unhealthy: Map.delete(state.unhealthy, path)}}
+      next_index = min(entry.backoff_index + 1, length(@backoff_steps) - 1)
+      delay = backoff_ms(next_index)
+      timer_ref = Process.send_after(self(), {:health_check, path}, delay)
 
-      true ->
-        # All failed — keep stale conns in ETS, schedule retry with backoff
-        next_index = min(entry.backoff_index + 1, length(@backoff_steps) - 1)
-        delay = backoff_ms(next_index)
-        timer_ref = Process.send_after(self(), {:health_check, path}, delay)
+      Logger.warning(
+        "Statix: reconnect failed for UDS path #{path}, " <>
+          "#{entry.lost_count} metric(s) lost so far, retrying in #{delay}ms"
+      )
 
-        Logger.warning(
-          "Statix: reconnect failed for UDS path #{path}, " <>
-            "#{entry.lost_count} metric(s) lost so far, retrying in #{delay}ms"
-        )
-
-        updated_entry = %{entry | backoff_index: next_index, timer_ref: timer_ref}
-        {:noreply, put_in(state.unhealthy[path], updated_entry)}
+      updated_entry = %{entry | backoff_index: next_index, timer_ref: timer_ref}
+      {:noreply, put_in(state.unhealthy[path], updated_entry)}
     end
   end
 
   @impl true
   def terminate(_reason, %{table: table}) do
     :ets.foldl(
-      fn
-        {{:unhealthy, _}, _}, acc ->
-          acc
-
-        {_path, connections}, acc ->
-          close_connections(connections)
-          acc
+      fn {_path, connections}, acc ->
+        close_connections(connections)
+        acc
       end,
       nil,
       table
     )
 
     :ok
+  end
+
+  defp close_and_remove(table, path) do
+    case :ets.lookup(table, path) do
+      [{^path, connections}] ->
+        close_connections(connections)
+        :ets.delete(table, path)
+
+      [] ->
+        :ok
+    end
   end
 
   defp close_connections(connections) do
