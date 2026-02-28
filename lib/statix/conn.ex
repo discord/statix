@@ -4,7 +4,6 @@ defmodule Statix.Conn do
   # sock field holds different types depending on state and transport:
   # - UDP: port (after open/1) or atom for process name
   # - UDS: {:socket_path, path} before open/1, socket reference after
-  # socket_path field preserves the UDS path even after opening
   defstruct [:sock, :address, :port, :prefix, :transport, :socket_path]
 
   alias Statix.Packet
@@ -44,7 +43,7 @@ defmodule Statix.Conn do
 
   def open(%__MODULE__{transport: :uds, sock: {:socket_path, path}} = conn) do
     unless Code.ensure_loaded?(:socket) do
-      raise "Unix domain socket support requires OTP 22+. Current OTP version does not support :socket module."
+      raise "Unix domain socket support requires OTP 22+"
     end
 
     case safe_open(conn) do

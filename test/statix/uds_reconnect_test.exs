@@ -20,25 +20,20 @@ defmodule Statix.UDSReconnectTest do
 
       TestStatix.connect(socket_path: socket_path)
 
-      # Verify happy path works
       TestStatix.increment("baseline")
       assert_receive {:test_server, _, "baseline:1|c"}, 1000
 
-      # Kill the test server (simulates Datadog agent restart)
       GenServer.stop(server)
       Process.sleep(100)
 
-      # Attempt to send — should return an error
       result_after_kill = TestStatix.increment("after_kill")
 
       assert {:error, _reason} = result_after_kill,
              "Expected send to fail after server shutdown, got: #{inspect(result_after_kill)}"
 
-      # Restart the test server on the same socket path
       {:ok, server2} = Statix.UDSTestServer.start_link(socket_path, __MODULE__.Server2)
       :ok = GenServer.call(__MODULE__.Server2, {:set_current_test, self()})
 
-      # Attempt to send with the old (stale) sockets — should STILL fail
       result_after_restart = TestStatix.increment("after_restart")
 
       assert {:error, _reason} = result_after_restart,

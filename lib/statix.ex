@@ -371,7 +371,6 @@ defmodule Statix do
   def new(module, options) do
     config = get_config(module, options)
 
-    # Determine transport based on socket_path presence
     conn =
       if config.socket_path do
         Conn.new(config.socket_path, config.prefix)
@@ -462,7 +461,6 @@ defmodule Statix do
     end
   end
 
-  # Takes first :sample_rate occurrence (standard keyword list behavior)
   defp should_send?([]), do: true
   defp should_send?([{:sample_rate, rate} | _]), do: rate >= :rand.uniform()
   defp should_send?([_ | rest]), do: should_send?(rest)
@@ -493,7 +491,6 @@ defmodule Statix do
       tags: tags
     }
 
-    # Warn if both socket_path and host/port are specified
     if config.socket_path do
       has_custom_host = Keyword.has_key?(options, :host)
       has_custom_port = Keyword.has_key?(options, :port)

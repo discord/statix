@@ -13,10 +13,6 @@ defmodule Statix.ConnTracker do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc """
-  Ensures ConnTracker is running. Called lazily on first UDS connection.
-  No-op if already started. Starts the entire supervision tree if needed.
-  """
   defdelegate ensure_started, to: Statix.Application
 
   @impl true
@@ -41,15 +37,8 @@ defmodule Statix.ConnTracker do
       _ ->
         {:error, :not_found}
     end
-  rescue
-    ArgumentError -> {:error, :not_found}
   end
 
-  @doc """
-  Report a send error for the given path. Non-blocking cast.
-  If path is not yet unhealthy, marks it and starts the health-check loop.
-  If already unhealthy, increments the lost metric count.
-  """
   @spec report_send_error(key :: term()) :: :ok
   def report_send_error(key) do
     GenServer.cast(__MODULE__, {:report_send_error, key})
@@ -57,15 +46,7 @@ defmodule Statix.ConnTracker do
 
   @impl true
   def handle_call({:set, key, connections, opts}, _from, state) do
-    # Close old connections before replacing them
-    case :ets.lookup(state.table, key) do
-      [{^key, old_connections}] ->
-        close_connections(old_connections)
-
-      [] ->
-        :ok
-    end
-
+    close_and_remove(state.table, key)
     :ets.insert(state.table, {key, connections})
 
     # Clear unhealthy state if present — a manual connect() supersedes the health-check loop.
@@ -80,7 +61,6 @@ defmodule Statix.ConnTracker do
           map
       end
 
-    # Store conn_template if provided (pool_size is derived from connections length)
     path_meta =
       case Keyword.fetch(opts, :conn_template) do
         {:ok, template} ->
@@ -99,13 +79,11 @@ defmodule Statix.ConnTracker do
   @impl true
   def handle_cast({:report_send_error, path}, state) do
     if Map.has_key?(state.unhealthy, path) do
-      # Already unhealthy — just bump lost count
       state = update_in(state.unhealthy[path].lost_count, &(&1 + 1))
       {:noreply, state}
     else
       case Map.fetch(state.path_meta, path) do
         {:ok, %{conn_template: conn_template, pool_size: pool_size}} ->
-          # Close and remove stale connections — they're permanently broken.
           # UDS DGRAM sockets to a dead server will never recover on their own;
           # only opening new sockets after the server restarts can restore service.
           close_and_remove(state.table, path)
@@ -162,10 +140,10 @@ defmodule Statix.ConnTracker do
       end)
 
     {successes, failures} = Enum.split_with(results, &match?({:ok, _}, &1))
+    opened = Enum.map(successes, fn {:ok, conn} -> conn end)
 
     if failures == [] do
-      connections = Enum.map(successes, fn {:ok, conn} -> conn end)
-      :ets.insert(state.table, {path, connections})
+      :ets.insert(state.table, {path, opened})
 
       Logger.info(
         "Statix: reconnected UDS path #{path} " <>
@@ -174,8 +152,8 @@ defmodule Statix.ConnTracker do
 
       {:noreply, %{state | unhealthy: Map.delete(state.unhealthy, path)}}
     else
-      # Close any that happened to open — we need all or nothing.
-      close_connections(Enum.map(successes, fn {:ok, conn} -> conn end))
+      # All or nothing
+      close_connections(opened)
 
       next_index = min(entry.backoff_index + 1, length(@backoff_steps) - 1)
       delay = backoff_ms(next_index)
