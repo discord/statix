@@ -47,15 +47,11 @@ defmodule Statix.Conn do
       raise "Unix domain socket support requires OTP 22+. Current OTP version does not support :socket module."
     end
 
-    {:ok, sock} = :socket.open(:local, :dgram, :default)
-    path_addr = %{family: :local, path: String.to_charlist(path)}
-
-    case :socket.connect(sock, path_addr) do
-      :ok ->
-        %__MODULE__{conn | sock: sock}
+    case safe_open(conn) do
+      {:ok, opened} ->
+        opened
 
       {:error, reason} ->
-        :socket.close(sock)
         raise "Failed to connect to Unix domain socket at #{path}: #{inspect(reason)}"
     end
   end

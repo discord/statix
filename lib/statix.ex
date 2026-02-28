@@ -403,10 +403,7 @@ defmodule Statix do
         Conn.open(conn)
       end)
 
-    Statix.ConnTracker.set(path, connections,
-      conn_template: conn,
-      pool_size: length(pool)
-    )
+    Statix.ConnTracker.set(path, connections, conn_template: conn)
   end
 
   def open(%__MODULE__{conn: conn, pool: pool}) do

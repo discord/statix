@@ -24,7 +24,7 @@ defmodule Statix.ConnTracker do
     table =
       :ets.new(:statix_conn_tracker, [:set, :protected, :named_table, read_concurrency: true])
 
-    {:ok, %{table: table, unhealthy: %{}, conn_templates: %{}, pool_sizes: %{}}}
+    {:ok, %{table: table, unhealthy: %{}, path_meta: %{}}}
   end
 
   @spec set(key :: term(), connections :: [Conn.t()], opts :: keyword()) :: :ok
@@ -80,21 +80,20 @@ defmodule Statix.ConnTracker do
           map
       end
 
-    # Store conn_template and pool_size if provided
-    conn_templates =
+    # Store conn_template if provided (pool_size is derived from connections length)
+    path_meta =
       case Keyword.fetch(opts, :conn_template) do
-        {:ok, template} -> Map.put(state.conn_templates, key, template)
-        :error -> state.conn_templates
+        {:ok, template} ->
+          Map.put(state.path_meta, key, %{
+            conn_template: template,
+            pool_size: length(connections)
+          })
+
+        :error ->
+          state.path_meta
       end
 
-    pool_sizes =
-      case Keyword.fetch(opts, :pool_size) do
-        {:ok, size} -> Map.put(state.pool_sizes, key, size)
-        :error -> state.pool_sizes
-      end
-
-    {:reply, :ok,
-     %{state | conn_templates: conn_templates, unhealthy: unhealthy, pool_sizes: pool_sizes}}
+    {:reply, :ok, %{state | path_meta: path_meta, unhealthy: unhealthy}}
   end
 
   @impl true
@@ -104,14 +103,13 @@ defmodule Statix.ConnTracker do
       state = update_in(state.unhealthy[path].lost_count, &(&1 + 1))
       {:noreply, state}
     else
-      case Map.fetch(state.conn_templates, path) do
-        {:ok, conn_template} ->
+      case Map.fetch(state.path_meta, path) do
+        {:ok, %{conn_template: conn_template, pool_size: pool_size}} ->
           # Close and remove stale connections — they're permanently broken.
           # UDS DGRAM sockets to a dead server will never recover on their own;
           # only opening new sockets after the server restarts can restore service.
           close_and_remove(state.table, path)
 
-          pool_size = Map.get(state.pool_sizes, path, 1)
           delay = backoff_ms(0)
           timer_ref = Process.send_after(self(), {:health_check, path}, delay)
 
@@ -208,13 +206,9 @@ defmodule Statix.ConnTracker do
   end
 
   defp close_and_remove(table, path) do
-    case :ets.lookup(table, path) do
-      [{^path, connections}] ->
-        close_connections(connections)
-        :ets.delete(table, path)
-
-      [] ->
-        :ok
+    case :ets.take(table, path) do
+      [{^path, connections}] -> close_connections(connections)
+      [] -> :ok
     end
   end
 
