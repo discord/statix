@@ -8,19 +8,18 @@ defmodule Statix.ConnTracker do
   require Logger
 
   @backoff_steps [1_000, 5_000, 30_000, 60_000, 120_000, 300_000]
+  @max_backoff_index length(@backoff_steps) - 1
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
-
-  defdelegate ensure_started, to: Statix.Application
 
   @impl true
   def init(_opts) do
     table =
       :ets.new(:statix_conn_tracker, [:set, :protected, :named_table, read_concurrency: true])
 
-    {:ok, %{table: table, unhealthy: %{}, path_meta: %{}}}
+    {:ok, %{table: table, paths: %{}}}
   end
 
   @spec set(key :: term(), connections :: [Conn.t()], opts :: keyword()) :: :ok
@@ -49,79 +48,67 @@ defmodule Statix.ConnTracker do
     close_and_remove(state.table, key)
     :ets.insert(state.table, {key, connections})
 
-    # Clear unhealthy state if present — a manual connect() supersedes the health-check loop.
-    # Cancel the pending timer so it doesn't close these fresh connections.
-    unhealthy =
-      case Map.pop(state.unhealthy, key) do
-        {nil, map} ->
-          map
+    case get_in(state.paths, [key, :health]) do
+      %{timer_ref: ref} -> Process.cancel_timer(ref)
+      _ -> :ok
+    end
 
-        {entry, map} ->
-          Process.cancel_timer(entry.timer_ref)
-          map
-      end
-
-    path_meta =
+    paths =
       case Keyword.fetch(opts, :conn_template) do
         {:ok, template} ->
-          Map.put(state.path_meta, key, %{
+          Map.put(state.paths, key, %{
             conn_template: template,
-            pool_size: length(connections)
+            pool_size: length(connections),
+            health: :ok
           })
 
         :error ->
-          state.path_meta
+          if Map.has_key?(state.paths, key) do
+            put_in(state.paths, [key, :health], :ok)
+          else
+            state.paths
+          end
       end
 
-    {:reply, :ok, %{state | path_meta: path_meta, unhealthy: unhealthy}}
+    {:reply, :ok, %{state | paths: paths}}
   end
 
   @impl true
   def handle_cast({:report_send_error, path}, state) do
-    if Map.has_key?(state.unhealthy, path) do
-      state = update_in(state.unhealthy[path].lost_count, &(&1 + 1))
-      {:noreply, state}
-    else
-      case Map.fetch(state.path_meta, path) do
-        {:ok, %{conn_template: conn_template, pool_size: pool_size}} ->
-          # UDS DGRAM sockets to a dead server will never recover on their own;
-          # only opening new sockets after the server restarts can restore service.
-          close_and_remove(state.table, path)
+    case Map.fetch(state.paths, path) do
+      {:ok, %{health: %{} = health}} ->
+        paths = put_in(state.paths, [path, :health, :lost_count], health.lost_count + 1)
+        {:noreply, %{state | paths: paths}}
 
-          delay = backoff_ms(0)
-          timer_ref = Process.send_after(self(), {:health_check, path}, delay)
+      {:ok, %{health: :ok} = _path_entry} ->
+        close_and_remove(state.table, path)
 
-          unhealthy_entry = %{
-            backoff_index: 0,
-            timer_ref: timer_ref,
-            conn_template: conn_template,
-            pool_size: pool_size,
-            lost_count: 1
-          }
+        delay = backoff_ms(0)
+        timer_ref = Process.send_after(self(), {:health_check, path}, delay)
 
-          Logger.warning(
-            "Statix: UDS path #{path} marked unhealthy, " <>
-              "scheduling reconnect in #{delay}ms"
-          )
+        Logger.warning(
+          "Statix: UDS path #{path} marked unhealthy, " <>
+            "scheduling reconnect in #{delay}ms"
+        )
 
-          {:noreply, put_in(state.unhealthy[path], unhealthy_entry)}
+        health = %{backoff_index: 0, timer_ref: timer_ref, lost_count: 1}
+        paths = put_in(state.paths, [path, :health], health)
+        {:noreply, %{state | paths: paths}}
 
-        :error ->
-          # No template stored — can't reconnect. This shouldn't happen.
-          Logger.error("Statix: UDS path #{path} has no conn_template, cannot reconnect")
-          {:noreply, state}
-      end
+      :error ->
+        Logger.error("Statix: UDS path #{path} has no conn_template, cannot reconnect")
+        {:noreply, state}
     end
   end
 
   @impl true
   def handle_info({:health_check, path}, state) do
-    case Map.fetch(state.unhealthy, path) do
-      {:ok, entry} ->
-        attempt_reconnect(path, entry, state)
+    case Map.fetch(state.paths, path) do
+      {:ok, %{health: %{} = _health} = path_info} ->
+        attempt_reconnect(path, path_info, state)
 
-      :error ->
-        # No longer unhealthy (race with successful set?)
+      _ ->
+        # Not unhealthy (race with successful set, or path removed)
         {:noreply, state}
     end
   end
@@ -133,10 +120,10 @@ defmodule Statix.ConnTracker do
   # reachability. If we can open one DGRAM connection to it, we can open all of
   # them; if we can't open one, we can't open any. So partial success doesn't need
   # handling — any failure means total failure, and we retry the full pool later.
-  defp attempt_reconnect(path, entry, state) do
+  defp attempt_reconnect(path, %{health: health} = path_info, state) do
     results =
-      Enum.map(1..entry.pool_size, fn _ ->
-        Conn.safe_open(entry.conn_template)
+      Enum.map(1..path_info.pool_size, fn _ ->
+        Conn.safe_open(path_info.conn_template)
       end)
 
     {successes, failures} = Enum.split_with(results, &match?({:ok, _}, &1))
@@ -147,25 +134,26 @@ defmodule Statix.ConnTracker do
 
       Logger.info(
         "Statix: reconnected UDS path #{path} " <>
-          "after losing #{entry.lost_count} metric(s)"
+          "after losing #{health.lost_count} metric(s)"
       )
 
-      {:noreply, %{state | unhealthy: Map.delete(state.unhealthy, path)}}
+      paths = put_in(state.paths, [path, :health], :ok)
+      {:noreply, %{state | paths: paths}}
     else
-      # All or nothing
       close_connections(opened)
 
-      next_index = min(entry.backoff_index + 1, length(@backoff_steps) - 1)
+      next_index = min(health.backoff_index + 1, @max_backoff_index)
       delay = backoff_ms(next_index)
       timer_ref = Process.send_after(self(), {:health_check, path}, delay)
 
       Logger.warning(
         "Statix: reconnect failed for UDS path #{path}, " <>
-          "#{entry.lost_count} metric(s) lost so far, retrying in #{delay}ms"
+          "#{health.lost_count} metric(s) lost so far, retrying in #{delay}ms"
       )
 
-      updated_entry = %{entry | backoff_index: next_index, timer_ref: timer_ref}
-      {:noreply, put_in(state.unhealthy[path], updated_entry)}
+      new_health = %{health | backoff_index: next_index, timer_ref: timer_ref}
+      paths = put_in(state.paths, [path, :health], new_health)
+      {:noreply, %{state | paths: paths}}
     end
   end
 
@@ -201,7 +189,7 @@ defmodule Statix.ConnTracker do
   end
 
   defp backoff_ms(index) do
-    base = Enum.at(@backoff_steps, index, List.last(@backoff_steps))
+    base = Enum.at(@backoff_steps, index)
     jitter = trunc(base * 0.1)
     base - jitter + :rand.uniform(jitter * 2 + 1) - 1
   end

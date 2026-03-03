@@ -393,10 +393,6 @@ defmodule Statix do
 
   @doc false
   def open(%__MODULE__{conn: %{transport: :uds, sock: {:socket_path, path}} = conn, pool: pool}) do
-    # UDS sockets are socket references (not ports), so they cannot be registered as process names.
-    # Instead, store them in ConnTracker's ETS table.
-    Statix.ConnTracker.ensure_started()
-
     connections =
       Enum.map(pool, fn _name ->
         Conn.open(conn)

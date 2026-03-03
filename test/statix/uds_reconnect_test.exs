@@ -76,8 +76,6 @@ defmodule Statix.UDSReconnectTest do
       socket_path = "/tmp/statix_ct_state_#{:erlang.unique_integer([:positive])}.sock"
       {:ok, server} = Statix.UDSTestServer.start_link(socket_path, __MODULE__.CTStateServer)
 
-      Statix.ConnTracker.ensure_started()
-
       conn_template = Statix.Conn.new(socket_path, nil)
       {:ok, opened} = Statix.Conn.safe_open(conn_template)
 
