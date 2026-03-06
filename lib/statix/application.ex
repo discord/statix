@@ -3,11 +3,9 @@ defmodule Statix.Application do
 
   use Application
 
+  @impl true
   def start(_type, _args) do
-    children = [
-      Statix.ConnTracker
-    ]
-
+    children = [Statix.ConnTracker]
     Supervisor.start_link(children, strategy: :one_for_one, name: Statix.Supervisor)
   end
 end

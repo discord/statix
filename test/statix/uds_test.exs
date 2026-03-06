@@ -104,8 +104,6 @@ defmodule Statix.UDSTest do
   end
 
   test "large packet over 1024 bytes via UDS maintains atomicity", _context do
-    # Create tags that will result in a packet > 1024 bytes
-    # Each tag is roughly 30 chars, so ~35 tags = ~1050 bytes total packet
     tags =
       for i <- 1..35 do
         "very_long_tag_name_#{i}:very_long_tag_value_#{i}"
@@ -113,20 +111,16 @@ defmodule Statix.UDSTest do
 
     TestStatix.increment("sample.with.long.metric.name", 1, tags: tags)
 
-    # Verify we receive the complete packet atomically (all or nothing)
     assert_receive {:test_server, _, packet}, 1000
 
-    # Verify packet structure is intact and complete
     assert packet =~ ~r/^sample\.with\.long\.metric\.name:1\|c\|#/
     assert String.contains?(packet, "very_long_tag_name_1:very_long_tag_value_1")
     assert String.contains?(packet, "very_long_tag_name_35:very_long_tag_value_35")
 
-    # Verify packet size exceeds 1024 bytes
     assert byte_size(packet) > 1024
   end
 
   test "very large packet over 4096 bytes via UDS maintains atomicity", _context do
-    # ~140 tags at 30 chars each = ~4200 bytes total
     tags =
       for i <- 1..140 do
         "very_long_tag_name_#{i}:very_long_tag_value_#{i}"
@@ -141,7 +135,6 @@ defmodule Statix.UDSTest do
     assert String.contains?(packet, "very_long_tag_name_140:very_long_tag_value_140")
     assert byte_size(packet) > 4096
 
-    # Verify atomicity: all 140 tags present (no truncation)
     tag_count = packet |> String.split(",") |> length()
     assert tag_count == 140
   end
@@ -153,11 +146,10 @@ defmodule Statix.UDSTest do
     assert length(connections) == 3
 
     socket_refs =
-      for i <- 1..1000 do
+      for _i <- 1..1000 do
         {:ok, conn} = Statix.ConnTracker.get(context[:socket_path])
         TestStatix.increment("pooled.metric")
         assert_receive {:test_server, _, _packet}
-        # Return the socket reference
         conn.sock
       end
 

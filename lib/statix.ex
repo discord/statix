@@ -371,7 +371,6 @@ defmodule Statix do
   def new(module, options) do
     config = get_config(module, options)
 
-    # Determine transport based on socket_path presence
     conn =
       if config.socket_path do
         Conn.new(config.socket_path, config.prefix)
@@ -394,14 +393,12 @@ defmodule Statix do
 
   @doc false
   def open(%__MODULE__{conn: %{transport: :uds, sock: {:socket_path, path}} = conn, pool: pool}) do
-    # UDS sockets are socket references (not ports), so they cannot be registered as process names.
-    # Instead, store them in ConnTracker's ETS table.
     connections =
       Enum.map(pool, fn _name ->
         Conn.open(conn)
       end)
 
-    Statix.ConnTracker.set(path, connections)
+    Statix.ConnTracker.set(path, connections, conn_template: conn)
   end
 
   def open(%__MODULE__{conn: conn, pool: pool}) do
@@ -425,7 +422,14 @@ defmodule Statix do
 
       case Statix.ConnTracker.get(path) do
         {:ok, conn} ->
-          Conn.transmit(conn, type, key, to_string(value), options)
+          case Conn.transmit(conn, type, key, to_string(value), options) do
+            :ok ->
+              :ok
+
+            {:error, _reason} = error ->
+              Statix.ConnTracker.report_send_error(path)
+              error
+          end
 
         {:error, :not_found} ->
           {:error, :socket_not_found}
@@ -453,7 +457,6 @@ defmodule Statix do
     end
   end
 
-  # Takes first :sample_rate occurrence (standard keyword list behavior)
   defp should_send?([]), do: true
   defp should_send?([{:sample_rate, rate} | _]), do: rate >= :rand.uniform()
   defp should_send?([_ | rest]), do: should_send?(rest)
@@ -484,7 +487,6 @@ defmodule Statix do
       tags: tags
     }
 
-    # Warn if both socket_path and host/port are specified
     if config.socket_path do
       has_custom_host = Keyword.has_key?(options, :host)
       has_custom_port = Keyword.has_key?(options, :port)
