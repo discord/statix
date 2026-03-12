@@ -137,6 +137,14 @@ defmodule StatixTest do
     refute_received _any
   end
 
+  test "send_event/2,3" do
+    __MODULE__.send_event("my_title", "my text")
+    assert_receive {:test_server, _, "_e{8,7}:my_title|my text"}
+
+    send_event("deploy", "v1.2.3", tags: ["env:prod"])
+    assert_receive {:test_server, _, "_e{6,6}:deploy|v1.2.3|#env:prod"}
+  end
+
   test "set/2,3" do
     __MODULE__.set(["sample"], 2)
     assert_receive {:test_server, _, "sample:2|s"}

@@ -253,6 +253,26 @@ defmodule Statix do
   @callback set(key, value :: String.Chars.t()) :: on_send
 
   @doc """
+  Sends a DataDog event.
+
+  This uses the DogStatsD event format (`_e{title_len,text_len}:title|text`),
+  which is a DataDog-specific extension to the StatsD protocol. Standard StatsD
+  servers do not support events.
+
+  ## Examples
+
+      iex> MyApp.Statix.send_event("deploy", "v1.2.3", tags: ["env:prod"])
+      :ok
+
+  """
+  @callback send_event(title :: iodata, text :: iodata, options) :: on_send
+
+  @doc """
+  Same as `send_event(title, text, [])`.
+  """
+  @callback send_event(title :: iodata, text :: iodata) :: on_send
+
+  @doc """
   Measures the execution time of the given `function` and writes that to the
   StatsD timing identified by `key`.
 
@@ -353,6 +373,10 @@ defmodule Statix do
         Statix.transmit(current_statix(), :set, key, val, options)
       end
 
+      def send_event(title, text, options \\ []) do
+        Statix.transmit_event(current_statix(), title, text, options)
+      end
+
       defoverridable(
         increment: 3,
         decrement: 3,
@@ -360,7 +384,8 @@ defmodule Statix do
         histogram: 3,
         timing: 3,
         measure: 3,
-        set: 3
+        set: 3,
+        send_event: 3
       )
     end
   end
@@ -455,6 +480,45 @@ defmodule Statix do
     else
       :ok
     end
+  end
+
+  @doc false
+  def transmit_event(
+        %{conn: %{transport: :uds, socket_path: path}, tags: tags},
+        title,
+        text,
+        options
+      )
+      when is_list(options) do
+    options = put_global_tags(options, tags)
+
+    case Statix.ConnTracker.get(path) do
+      {:ok, conn} ->
+        case Conn.transmit_event(conn, title, text, options) do
+          :ok ->
+            :ok
+
+          {:error, _reason} = error ->
+            Statix.ConnTracker.report_send_error(path)
+            error
+        end
+
+      {:error, :not_found} ->
+        {:error, :socket_not_found}
+    end
+  end
+
+  def transmit_event(
+        %{conn: conn, pool: pool, tags: tags},
+        title,
+        text,
+        options
+      )
+      when is_list(options) do
+    options = put_global_tags(options, tags)
+
+    %{conn | sock: pick_name(pool)}
+    |> Conn.transmit_event(title, text, options)
   end
 
   defp should_send?([]), do: true

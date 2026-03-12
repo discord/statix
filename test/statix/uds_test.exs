@@ -81,6 +81,14 @@ defmodule Statix.UDSTest do
     assert_receive {:test_server, _, "sample:3|ms|#foo:bar,baz"}
   end
 
+  test "send_event via UDS", _context do
+    TestStatix.send_event("my_title", "my text")
+    assert_receive {:test_server, _, "_e{8,7}:my_title|my text"}
+
+    TestStatix.send_event("deploy", "v1.2.3", tags: ["env:prod"])
+    assert_receive {:test_server, _, "_e{6,6}:deploy|v1.2.3|#env:prod"}
+  end
+
   test "set via UDS", _context do
     TestStatix.set("sample", "user1")
     assert_receive {:test_server, _, "sample:user1|s"}
