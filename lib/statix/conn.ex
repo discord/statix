@@ -86,7 +86,7 @@ defmodule Statix.Conn do
     result
   end
 
-  def transmit(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
+  def transmit_metric(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
       when is_binary(val) and is_list(options) do
     result =
       prefix

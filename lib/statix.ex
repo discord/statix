@@ -342,23 +342,23 @@ defmodule Statix do
       unquote(current_statix)
 
       def increment(key, val \\ 1, options \\ []) when is_number(val) do
-        Statix.transmit(current_statix(), :counter, key, val, options)
+        Statix.transmit_metric(current_statix(), :counter, key, val, options)
       end
 
       def decrement(key, val \\ 1, options \\ []) when is_number(val) do
-        Statix.transmit(current_statix(), :counter, key, [?-, to_string(val)], options)
+        Statix.transmit_metric(current_statix(), :counter, key, [?-, to_string(val)], options)
       end
 
       def gauge(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :gauge, key, val, options)
+        Statix.transmit_metric(current_statix(), :gauge, key, val, options)
       end
 
       def histogram(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :histogram, key, val, options)
+        Statix.transmit_metric(current_statix(), :histogram, key, val, options)
       end
 
       def timing(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :timing, key, val, options)
+        Statix.transmit_metric(current_statix(), :timing, key, val, options)
       end
 
       def measure(key, options \\ [], fun) when is_function(fun, 0) do
@@ -370,7 +370,7 @@ defmodule Statix do
       end
 
       def set(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :set, key, val, options)
+        Statix.transmit_metric(current_statix(), :set, key, val, options)
       end
 
       def send_event(title, text, options \\ []) do
@@ -434,7 +434,7 @@ defmodule Statix do
   end
 
   @doc false
-  def transmit(
+  def transmit_metric(
         %{conn: %{transport: :uds, socket_path: path}, tags: tags},
         type,
         key,
@@ -447,7 +447,7 @@ defmodule Statix do
 
       case Statix.ConnTracker.get(path) do
         {:ok, conn} ->
-          case Conn.transmit(conn, type, key, to_string(value), options) do
+          case Conn.transmit_metric(conn, type, key, to_string(value), options) do
             :ok ->
               :ok
 
@@ -464,7 +464,7 @@ defmodule Statix do
     end
   end
 
-  def transmit(
+  def transmit_metric(
         %{conn: conn, pool: pool, tags: tags},
         type,
         key,
@@ -476,7 +476,7 @@ defmodule Statix do
       options = put_global_tags(options, tags)
 
       %{conn | sock: pick_name(pool)}
-      |> Conn.transmit(type, key, to_string(value), options)
+      |> Conn.transmit_metric(type, key, to_string(value), options)
     else
       :ok
     end
