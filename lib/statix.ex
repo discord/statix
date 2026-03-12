@@ -434,67 +434,35 @@ defmodule Statix do
   end
 
   @doc false
-  def transmit_metric(
-        %{conn: %{transport: :uds, socket_path: path}, tags: tags},
-        type,
-        key,
-        value,
-        options
-      )
+  def transmit_metric(statix, type, key, value, options)
       when (is_binary(key) or is_list(key)) and is_list(options) do
     if should_send?(options) do
-      options = put_global_tags(options, tags)
-
-      case Statix.ConnTracker.get(path) do
-        {:ok, conn} ->
-          case Conn.transmit_metric(conn, type, key, to_string(value), options) do
-            :ok ->
-              :ok
-
-            {:error, _reason} = error ->
-              Statix.ConnTracker.report_send_error(path)
-              error
-          end
-
-        {:error, :not_found} ->
-          {:error, :socket_not_found}
-      end
-    else
-      :ok
-    end
-  end
-
-  def transmit_metric(
-        %{conn: conn, pool: pool, tags: tags},
-        type,
-        key,
-        value,
-        options
-      )
-      when (is_binary(key) or is_list(key)) and is_list(options) do
-    if should_send?(options) do
-      options = put_global_tags(options, tags)
-
-      %{conn | sock: pick_name(pool)}
-      |> Conn.transmit_metric(type, key, to_string(value), options)
+      do_transmit(statix, options, fn conn, opts ->
+        Conn.transmit_metric(conn, type, key, to_string(value), opts)
+      end)
     else
       :ok
     end
   end
 
   @doc false
-  def transmit_event(
-        %{conn: %{transport: :uds, socket_path: path}, tags: tags},
-        title,
-        text,
-        options
-      )
+  def transmit_event(statix, title, text, options)
       when is_list(options) do
+    do_transmit(statix, options, fn conn, opts ->
+      Conn.transmit_event(conn, title, text, opts)
+    end)
+  end
+
+  defp do_transmit(
+         %{conn: %{transport: :uds, socket_path: path}, tags: tags},
+         options,
+         send_fn
+       ) do
     options = put_global_tags(options, tags)
 
     case Statix.ConnTracker.get(path) do
       {:ok, conn} ->
-        case Conn.transmit_event(conn, title, text, options) do
+        case send_fn.(conn, options) do
           :ok ->
             :ok
 
@@ -508,17 +476,11 @@ defmodule Statix do
     end
   end
 
-  def transmit_event(
-        %{conn: conn, pool: pool, tags: tags},
-        title,
-        text,
-        options
-      )
-      when is_list(options) do
+  defp do_transmit(%{conn: conn, pool: pool, tags: tags}, options, send_fn) do
     options = put_global_tags(options, tags)
+    conn = %{conn | sock: pick_name(pool)}
 
-    %{conn | sock: pick_name(pool)}
-    |> Conn.transmit_event(title, text, options)
+    send_fn.(conn, options)
   end
 
   defp should_send?([]), do: true
