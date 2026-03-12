@@ -7,6 +7,8 @@ This Discord fork of Statix exists for [discord/instruments](https://github.com/
 
 - [OTP26 compability via Port.command replacement](https://github.com/cabify/statix/pull/1)
 - Name change to discord_statix
+- Unix Domain Socket support
+- Support for Datadog events
 
 Statix is an Elixir client for StatsD-compatible servers.
 It is focused on speed without sacrificing simplicity, completeness, or correctness.
