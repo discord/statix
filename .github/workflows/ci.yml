@@ -7,26 +7,36 @@ on:
   pull_request:
 
 jobs:
-  lint:
-    name: Code linting
-    uses: lexmag/elixir-actions/.github/workflows/lint.yml@v2
-    with:
-      otp-version: "24"
-      elixir-version: "1.14"
-
   test:
     name: Test suite
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     strategy:
       matrix:
-        otp: ["24"]
-        elixir: ["1.14"]
-        runtime_config: [true, false]
-
         include:
-          - otp: "20"
-            elixir: "1.6"
+          - otp: "24"
+            elixir: "1.15"
+            runtime_config: true
+          - otp: "24"
+            elixir: "1.15"
+            runtime_config: false
+          - otp: "25"
+            elixir: "1.15"
+            runtime_config: true
+          - otp: "25"
+            elixir: "1.15"
+            runtime_config: false
+          - otp: "25"
+            elixir: "1.18"
+            runtime_config: true
+          - otp: "25"
+            elixir: "1.18"
+            runtime_config: false
+          - otp: "28"
+            elixir: "1.18"
+            runtime_config: true
+          - otp: "28"
+            elixir: "1.18"
             runtime_config: false
 
     env:
