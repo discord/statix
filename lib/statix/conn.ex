@@ -70,11 +70,27 @@ defmodule Statix.Conn do
     end
   end
 
-  def transmit(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
+  def transmit_event(%__MODULE__{sock: sock} = conn, title, text, options)
+      when is_list(options) do
+    result =
+      Packet.build_event(title, text, options)
+      |> transmit(conn)
+
+    with {:error, error} <- result do
+      Logger.error(fn ->
+        if(is_atom(sock), do: "", else: "Statix ") <>
+          "#{inspect(sock)} event \"#{title}\" lost, error=#{inspect(error)}"
+      end)
+    end
+
+    result
+  end
+
+  def transmit_metric(%__MODULE__{sock: sock, prefix: prefix} = conn, type, key, val, options)
       when is_binary(val) and is_list(options) do
     result =
       prefix
-      |> Packet.build(type, key, val, options)
+      |> Packet.build_metric(type, key, val, options)
       |> transmit(conn)
 
     with {:error, error} <- result do

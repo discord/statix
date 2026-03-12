@@ -1,9 +1,33 @@
 defmodule Statix.Packet do
   @moduledoc false
 
-  def build(prefix, name, key, val, options) do
+  def build_metric(prefix, name, key, val, options) do
     [prefix, key, ?:, val, ?|, metric_type(name)]
     |> set_option(:sample_rate, options[:sample_rate])
+    |> set_option(:tags, options[:tags])
+  end
+
+  @doc """
+  Builds a DataDog event packet.
+
+  Uses the DogStatsD event format (`_e{title_len,text_len}:title|text`),
+  which is a DataDog-specific extension to the StatsD protocol. Standard StatsD
+  servers do not support events.
+  """
+  def build_event(title, text, options) do
+    title_bin = IO.iodata_to_binary(title)
+    text_bin = IO.iodata_to_binary(text)
+
+    [
+      "_e{",
+      Integer.to_string(byte_size(title_bin)),
+      ",",
+      Integer.to_string(byte_size(text_bin)),
+      "}:",
+      title_bin,
+      "|",
+      text_bin
+    ]
     |> set_option(:tags, options[:tags])
   end
 

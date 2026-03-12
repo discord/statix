@@ -253,6 +253,26 @@ defmodule Statix do
   @callback set(key, value :: String.Chars.t()) :: on_send
 
   @doc """
+  Sends a DataDog event.
+
+  This uses the DogStatsD event format (`_e{title_len,text_len}:title|text`),
+  which is a DataDog-specific extension to the StatsD protocol. Standard StatsD
+  servers do not support events.
+
+  ## Examples
+
+      iex> MyApp.Statix.send_event("deploy", "v1.2.3", tags: ["env:prod"])
+      :ok
+
+  """
+  @callback send_event(title :: iodata, text :: iodata, options) :: on_send
+
+  @doc """
+  Same as `send_event(title, text, [])`.
+  """
+  @callback send_event(title :: iodata, text :: iodata) :: on_send
+
+  @doc """
   Measures the execution time of the given `function` and writes that to the
   StatsD timing identified by `key`.
 
@@ -322,23 +342,23 @@ defmodule Statix do
       unquote(current_statix)
 
       def increment(key, val \\ 1, options \\ []) when is_number(val) do
-        Statix.transmit(current_statix(), :counter, key, val, options)
+        Statix.transmit_metric(current_statix(), :counter, key, val, options)
       end
 
       def decrement(key, val \\ 1, options \\ []) when is_number(val) do
-        Statix.transmit(current_statix(), :counter, key, [?-, to_string(val)], options)
+        Statix.transmit_metric(current_statix(), :counter, key, [?-, to_string(val)], options)
       end
 
       def gauge(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :gauge, key, val, options)
+        Statix.transmit_metric(current_statix(), :gauge, key, val, options)
       end
 
       def histogram(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :histogram, key, val, options)
+        Statix.transmit_metric(current_statix(), :histogram, key, val, options)
       end
 
       def timing(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :timing, key, val, options)
+        Statix.transmit_metric(current_statix(), :timing, key, val, options)
       end
 
       def measure(key, options \\ [], fun) when is_function(fun, 0) do
@@ -350,7 +370,11 @@ defmodule Statix do
       end
 
       def set(key, val, options \\ []) do
-        Statix.transmit(current_statix(), :set, key, val, options)
+        Statix.transmit_metric(current_statix(), :set, key, val, options)
+      end
+
+      def send_event(title, text, options \\ []) do
+        Statix.transmit_event(current_statix(), title, text, options)
       end
 
       defoverridable(
@@ -360,7 +384,8 @@ defmodule Statix do
         histogram: 3,
         timing: 3,
         measure: 3,
-        set: 3
+        set: 3,
+        send_event: 3
       )
     end
   end
@@ -409,52 +434,53 @@ defmodule Statix do
   end
 
   @doc false
-  def transmit(
-        %{conn: %{transport: :uds, socket_path: path}, tags: tags},
-        type,
-        key,
-        value,
-        options
-      )
+  def transmit_metric(statix, type, key, value, options)
       when (is_binary(key) or is_list(key)) and is_list(options) do
     if should_send?(options) do
-      options = put_global_tags(options, tags)
-
-      case Statix.ConnTracker.get(path) do
-        {:ok, conn} ->
-          case Conn.transmit(conn, type, key, to_string(value), options) do
-            :ok ->
-              :ok
-
-            {:error, _reason} = error ->
-              Statix.ConnTracker.report_send_error(path)
-              error
-          end
-
-        {:error, :not_found} ->
-          {:error, :socket_not_found}
-      end
+      do_transmit(statix, options, fn conn, opts ->
+        Conn.transmit_metric(conn, type, key, to_string(value), opts)
+      end)
     else
       :ok
     end
   end
 
-  def transmit(
-        %{conn: conn, pool: pool, tags: tags},
-        type,
-        key,
-        value,
-        options
-      )
-      when (is_binary(key) or is_list(key)) and is_list(options) do
-    if should_send?(options) do
-      options = put_global_tags(options, tags)
+  @doc false
+  def transmit_event(statix, title, text, options)
+      when is_list(options) do
+    do_transmit(statix, options, fn conn, opts ->
+      Conn.transmit_event(conn, title, text, opts)
+    end)
+  end
 
-      %{conn | sock: pick_name(pool)}
-      |> Conn.transmit(type, key, to_string(value), options)
-    else
-      :ok
+  defp do_transmit(
+         %{conn: %{transport: :uds, socket_path: path}, tags: tags},
+         options,
+         send_fn
+       ) do
+    options = put_global_tags(options, tags)
+
+    case Statix.ConnTracker.get(path) do
+      {:ok, conn} ->
+        case send_fn.(conn, options) do
+          :ok ->
+            :ok
+
+          {:error, _reason} = error ->
+            Statix.ConnTracker.report_send_error(path)
+            error
+        end
+
+      {:error, :not_found} ->
+        {:error, :socket_not_found}
     end
+  end
+
+  defp do_transmit(%{conn: conn, pool: pool, tags: tags}, options, send_fn) do
+    options = put_global_tags(options, tags)
+    conn = %{conn | sock: pick_name(pool)}
+
+    send_fn.(conn, options)
   end
 
   defp should_send?([]), do: true
