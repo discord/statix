@@ -219,6 +219,30 @@ defmodule Statix do
   @callback histogram(key, value :: String.Chars.t()) :: on_send
 
   @doc """
+  Writes `value` to the distribution identified by `key`.
+
+  Distributions are a DataDog-specific
+  ([DogStatsD](https://docs.datadoghq.com/extend/dogstatsd)) extension to the
+  StatsD protocol and are not supported by standard StatsD servers. Unlike
+  histograms, values are aggregated server-side by DataDog, providing globally
+  accurate percentiles.
+
+  ## Examples
+
+      iex> MyApp.Statix.distribution("request.duration", 123, [])
+      :ok
+
+  """
+  @doc since: "1.9.0"
+  @callback distribution(key, value :: String.Chars.t(), options) :: on_send
+
+  @doc """
+  Same as `distribution(key, value, [])`.
+  """
+  @doc since: "1.9.0"
+  @callback distribution(key, value :: String.Chars.t()) :: on_send
+
+  @doc """
   Same as `timing(key, value, [])`.
   """
   @callback timing(key, value :: String.Chars.t()) :: on_send
@@ -357,6 +381,10 @@ defmodule Statix do
         Statix.transmit_metric(current_statix(), :histogram, key, val, options)
       end
 
+      def distribution(key, val, options \\ []) do
+        Statix.transmit_metric(current_statix(), :distribution, key, val, options)
+      end
+
       def timing(key, val, options \\ []) do
         Statix.transmit_metric(current_statix(), :timing, key, val, options)
       end
@@ -382,6 +410,7 @@ defmodule Statix do
         decrement: 3,
         gauge: 3,
         histogram: 3,
+        distribution: 3,
         timing: 3,
         measure: 3,
         set: 3,

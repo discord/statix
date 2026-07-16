@@ -9,6 +9,7 @@ This Discord fork of Statix exists for [discord/instruments](https://github.com/
 - Name change to discord_statix
 - Unix Domain Socket support
 - Support for Datadog events
+- Support for Datadog distribution metrics
 
 Statix is an Elixir client for StatsD-compatible servers.
 It is focused on speed without sacrificing simplicity, completeness, or correctness.

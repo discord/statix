@@ -98,6 +98,32 @@ defmodule StatixTest do
     refute_received _any
   end
 
+  test "distribution/2,3" do
+    __MODULE__.distribution("sample", 2)
+    assert_receive {:test_server, _, "sample:2|d"}
+
+    distribution("sample", 2.1)
+    assert_receive {:test_server, _, "sample:2.1|d"}
+
+    distribution("sample", 3, tags: ["foo:bar", "baz"])
+    assert_receive {:test_server, _, "sample:3|d|#foo:bar,baz"}
+
+    distribution("sample", 3, sample_rate: 1.0, tags: ["foo", "bar"])
+    assert_receive {:test_server, _, "sample:3|d|@1.0|#foo,bar"}
+
+    packet =
+      Statix.Packet.build_metric("", :distribution, "sample", "3",
+        sample_rate: 0.5,
+        tags: ["foo:bar"]
+      )
+
+    assert IO.iodata_to_binary(packet) == "sample:3|d|@0.5|#foo:bar"
+
+    distribution("sample", 3, sample_rate: 0.0)
+
+    refute_received _any
+  end
+
   test "timing/2,3" do
     __MODULE__.timing(["sample"], 2)
     assert_receive {:test_server, _, "sample:2|ms"}
