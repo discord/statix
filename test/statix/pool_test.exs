@@ -16,6 +16,7 @@ defmodule Statix.PoolingTest do
         {:decrement, [3]},
         {:gauge, [3]},
         {:histogram, [3]},
+        {:distribution, [3]},
         {:timing, [3]},
         {:measure, [fn -> nil end]},
         {:set, [3]}

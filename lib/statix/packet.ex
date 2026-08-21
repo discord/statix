@@ -36,7 +36,10 @@ defmodule Statix.Packet do
     gauge: "g",
     histogram: "h",
     timing: "ms",
-    set: "s"
+    set: "s",
+
+    # DogStatsD.
+    distribution: "d"
   }
 
   for {name, type} <- metrics do

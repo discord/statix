@@ -70,6 +70,17 @@ defmodule Statix.UDSTest do
     assert_receive {:test_server, _, "sample:3|h|#foo:bar,baz"}
   end
 
+  test "distribution via UDS", _context do
+    TestStatix.distribution("sample", 2)
+    assert_receive {:test_server, _, "sample:2|d"}
+
+    TestStatix.distribution("sample", 2.1)
+    assert_receive {:test_server, _, "sample:2.1|d"}
+
+    TestStatix.distribution("sample", 3, tags: ["foo:bar", "baz"])
+    assert_receive {:test_server, _, "sample:3|d|#foo:bar,baz"}
+  end
+
   test "timing via UDS", _context do
     TestStatix.timing("sample", 2)
     assert_receive {:test_server, _, "sample:2|ms"}
