@@ -289,11 +289,13 @@ defmodule Statix do
       :ok
 
   """
+  @doc since: "1.8.0"
   @callback send_event(title :: iodata, text :: iodata, options) :: on_send
 
   @doc """
   Same as `send_event(title, text, [])`.
   """
+  @doc since: "1.8.0"
   @callback send_event(title :: iodata, text :: iodata) :: on_send
 
   @doc """
