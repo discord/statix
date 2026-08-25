@@ -16,9 +16,6 @@ defmodule StatixTest do
     end)
   end
 
-  setup do
-    connect()
-  end
 
   test "increment/1,2,3" do
     __MODULE__.increment("sample")

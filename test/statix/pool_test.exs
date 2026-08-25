@@ -6,7 +6,8 @@ defmodule Statix.PoolingTest do
   @pool_size 3
 
   setup do
-    connect(pool_size: @pool_size)
+    port = Statix.TestServer.get_port(__MODULE__.Server)
+    connect(port: port, pool_size: @pool_size)
   end
 
   test "starts :pool_size number of ports and randomly picks one" do
